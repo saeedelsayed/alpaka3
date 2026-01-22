@@ -14,7 +14,7 @@
 
 constexpr uint32_t RADIX_BITS = 4;
 constexpr uint32_t RADIX_SIZE = 1 << RADIX_BITS; // 16 bins
-constexpr uint32_t BLOCK_SIZE = 16;
+constexpr uint32_t BLOCK_SIZE = 512;
 
 
 namespace alpaka::example::radixSort
@@ -49,7 +49,7 @@ struct RadixCountKernel
                 }
             }
 
-            alpaka::onAcc::syncBlockThreads(acc);
+            // alpaka::onAcc::syncBlockThreads(acc);
 
             for(auto frameElemIdxMD :
                 alpaka::onAcc::makeIdxMap(acc, alpaka::onAcc::worker::linearThreadsInBlock, IdxRange{acc[frame::extent].product()}))
@@ -88,6 +88,7 @@ struct RadixCountKernel
     }
 };
 
+
 void testRadixCount(alpaka::onHost::concepts::Device auto device, auto computeExec)
 {
     // using namespace alpaka;
@@ -95,33 +96,35 @@ void testRadixCount(alpaka::onHost::concepts::Device auto device, auto computeEx
     using namespace alpaka;
     using namespace alpaka::onHost;
 
-    std::vector<uint32_t> initial_data
-        = {0, 0, 5, 5, 8, 7, 9, 8, 4, 5, 6, 2, 6, 8, 7, 1, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 15, 14, 13, 13};
+    // std::vector<uint32_t> initial_data
+    //     = {0, 0, 5, 5, 8, 7, 9, 8, 4, 5, 6, 2, 6, 8, 7, 1, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 15, 14, 13, 13};
 
-    uint32_t const num_elements = static_cast<uint32_t>(initial_data.size());
+    // uint32_t const num_elements = static_cast<uint32_t>(initial_data.size());
 
     // Allocate Alpaka Host Memory
-    // uint32_t const num_elements = 1000000;
+    uint32_t const num_elements = (1024 * 1024 * 1024) / 4;
     auto h_data = onHost::allocHost<uint32_t>(Vec1D{num_elements});
 
-    // std::mt19937 gen(42);
-    // std::uniform_int_distribution<uint32_t> dist(0, 1000000);
-    // for(uint32_t i = 0; i < num_elements; ++i) {
-    //     h_data[i] = dist(gen);
-    // }
+    std::mt19937 gen(42);
+    std::uniform_int_distribution<uint32_t> dist(0, 1000000);
+    for(uint32_t i = 0; i < num_elements; ++i) {
+        h_data[i] = dist(gen);
+    }
 
     // Copy data into the Alpaka buffer
-    std::cout << "Input Data: ";
-    for(uint32_t i = 0; i < num_elements; ++i)
-    {
-        h_data[i] = initial_data[i];
-        std::cout << h_data[i] << " ";
-    }
-    std::cout << "\n\n";
+    // std::cout << "Input Data: ";
+    // for(uint32_t i = 0; i < num_elements; ++i)
+    // {
+    //     h_data[i] = initial_data[i];
+    //     std::cout << h_data[i] << " ";
+    // }
+    // std::cout << "\n\n";
 
     auto extents = Vec<uint32_t, 1u>{num_elements};
     auto const numChunks = divCeil(extents, chunkSize);
     auto frameSpec = FrameSpec{numChunks, chunkSize};
+
+    std::cout << frameSpec << std::endl;
 
     auto h_counts = onHost::allocHost<uint32_t>(Vec1D{numChunks.x() * RADIX_SIZE});
 
@@ -133,7 +136,17 @@ void testRadixCount(alpaka::onHost::concepts::Device auto device, auto computeEx
     onHost::memcpy(queue, d_data, h_data);
     onHost::memset(queue, d_counts, 0x00);
 
+    onHost::wait(queue);
+    auto const beginT = std::chrono::high_resolution_clock::now();
+
     queue.enqueue(computeExec, frameSpec, RadixCountKernel{}, d_data, d_counts, num_elements, 0u);
+
+    onHost::wait(queue);
+    auto const endT = std::chrono::high_resolution_clock::now();
+
+ double kernelRuntime = std::chrono::duration<double, std::milli>(endT - beginT).count();
+
+ std::cout << "Time taken by kernel: " << kernelRuntime << std::endl;
 
     onHost::memcpy(queue, h_counts, d_counts);
     onHost::wait(queue);
