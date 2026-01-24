@@ -14,7 +14,7 @@
 
 constexpr uint32_t RADIX_BITS = 4;
 constexpr uint32_t RADIX_SIZE = 1 << RADIX_BITS; // 16 bins
-constexpr uint32_t BLOCK_SIZE = 512;
+constexpr uint32_t BLOCK_SIZE = 16;
 
 
 namespace alpaka::example::radixSort
@@ -96,29 +96,30 @@ void testRadixCount(alpaka::onHost::concepts::Device auto device, auto computeEx
     using namespace alpaka;
     using namespace alpaka::onHost;
 
-    // std::vector<uint32_t> initial_data
-    //     = {0, 0, 5, 5, 8, 7, 9, 8, 4, 5, 6, 2, 6, 8, 7, 1, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 15, 14, 13, 13};
+    std::vector<uint32_t> initial_data
+        = {0, 0, 5, 5, 8, 7, 9, 8, 4, 5, 6, 2, 6, 8, 7, 1, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 15, 14, 13, 13};
 
-    // uint32_t const num_elements = static_cast<uint32_t>(initial_data.size());
+    uint32_t const num_elements = static_cast<uint32_t>(initial_data.size());
 
-    // Allocate Alpaka Host Memory
-    uint32_t const num_elements = (1024 * 1024 * 1024) / 4;
+    // uint32_t const num_elements = (1024) / 4;
+
+    std::cout << "Number of elements: " << num_elements << std::endl;
     auto h_data = onHost::allocHost<uint32_t>(Vec1D{num_elements});
 
-    std::mt19937 gen(42);
-    std::uniform_int_distribution<uint32_t> dist(0, 1000000);
-    for(uint32_t i = 0; i < num_elements; ++i) {
-        h_data[i] = dist(gen);
-    }
+    // std::mt19937 gen(42);
+    // std::uniform_int_distribution<uint32_t> dist(0, 1000000);
+    // for(uint32_t i = 0; i < num_elements; ++i) {
+    //     h_data[i] = dist(gen);
+    // }
 
     // Copy data into the Alpaka buffer
-    // std::cout << "Input Data: ";
-    // for(uint32_t i = 0; i < num_elements; ++i)
-    // {
-    //     h_data[i] = initial_data[i];
-    //     std::cout << h_data[i] << " ";
-    // }
-    // std::cout << "\n\n";
+    std::cout << "Input Data: ";
+    for(uint32_t i = 0; i < num_elements; ++i)
+    {
+        h_data[i] = initial_data[i];
+        std::cout << h_data[i] << " ";
+    }
+    std::cout << "\n\n";
 
     auto extents = Vec<uint32_t, 1u>{num_elements};
     auto const numChunks = divCeil(extents, chunkSize);
@@ -170,6 +171,51 @@ void testRadixCount(alpaka::onHost::concepts::Device auto device, auto computeEx
     {
         std::cout << "Bin " << i << ": " << gpu_total_histogram[i] << "\n";
     }
+    std::cout << "--------------------------------\n\n";
+
+     std::vector<uint32_t> prefixScan(RADIX_SIZE, 0);
+    for(uint32_t i = 0; i < RADIX_SIZE; i++)
+    {
+        if(i == 0)
+        {
+        prefixScan[i] = 0;
+        }
+        else
+        { 
+            for(int j = i-1; j >= 0; j--)
+            {
+                prefixScan[i]+= gpu_total_histogram[j];  
+            }   
+        }
+    }
+
+    // print PrefixScan Table
+    std::cout << "--------------------------------\n";
+    std::cout << "PrefixScan Table:\n";
+    std::cout << "--------------------------------\n";
+    for(uint32_t i = 0; i < RADIX_SIZE; ++i)
+    {
+        std::cout << "Bin " << i << ": " << prefixScan[i] << "\n";
+    }
+    std::cout << "--------------------------------\n";
+
+    std::vector<uint32_t> ordered_data(num_elements, 0);
+
+    for(uint32_t i = 0; i < num_elements; i++)
+    {
+        uint32_t digit = (initial_data[i] >> 0) & 0x0F;
+        uint32_t index = prefixScan[digit];
+        ordered_data[index] = initial_data[i];
+        prefixScan[digit]++;
+    }
+
+    std::cout << "Ordered Data: ";
+    for(uint32_t i = 0; i < num_elements; ++i)
+    {
+        std::cout << ordered_data[i] << " ";
+    }
+    std::cout << "\n\n";
+
     std::cout << "--------------------------------\n\n";
 
     std::cout << "Verifying results...\n";
